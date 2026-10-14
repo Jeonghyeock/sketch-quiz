@@ -1,0 +1,39 @@
+{
+  "name": "sketch-quiz",
+  "version": "1.0.0",
+  "description": "WebSocket 기반 실시간 그림 맞히기 게임 — 서버가 진행하는 게임 상태 머신, 사람마다 다른 화면, 획 스트리밍",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Jeonghyeock Kim",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"node --watch server/main.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "node server/main.ts",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lucide-react": "^1.52.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}
