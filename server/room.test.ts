@@ -307,12 +307,30 @@ describe('접속과 퇴장', () => {
     expect(carol.state.phase).toMatchObject({ kind: 'choosing', drawerId: carol.playerId });
   });
 
-  it('끊긴 사람을 빼고 모두 맞혔으면 턴을 끝낸다', () => {
+  it('못 맞힌 사람이 끊겨도 바로 턴을 끝내지 않고, 유예 시간 안에 돌아오면 턴이 이어진다', () => {
+    const { room, conns } = setup();
+    const [alice, bob, carol] = conns as [FakeConnection, FakeConnection, FakeConnection];
+    startDrawing(room, alice);
+    room.handle(bob, { type: 'chat', text: '바나나우유' });
+    room.disconnect(carol); // 마지막으로 남은 못 맞힌 사람이 새로고침
+    expect(bob.state.phase.kind).toBe('drawing');
+    vi.advanceTimersByTime(4_000);
+
+    const again = new FakeConnection();
+    room.join(again, hello('carol'));
+    expect(again.state.phase).toMatchObject({ kind: 'drawing', word: null });
+    vi.advanceTimersByTime(5_000); // 원래 유예 시간이 끝났을 시점이 지나도
+    expect(bob.state.phase.kind).toBe('drawing');
+  });
+
+  it('끊긴 사람이 유예 시간 안에 돌아오지 않으면, 그 사람을 빼고 모두 맞혔으므로 턴을 끝낸다', () => {
     const { room, conns } = setup();
     const [alice, bob, carol] = conns as [FakeConnection, FakeConnection, FakeConnection];
     startDrawing(room, alice);
     room.handle(bob, { type: 'chat', text: '바나나우유' });
     room.disconnect(carol);
+    expect(bob.state.phase.kind).toBe('drawing');
+    vi.advanceTimersByTime(5_000);
     expect(bob.state.phase).toMatchObject({ kind: 'turnEnd', reason: 'allSolved' });
   });
 
