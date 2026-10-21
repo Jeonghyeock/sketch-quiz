@@ -293,6 +293,12 @@ export class Room {
         this.solve(player, phase);
         return;
       }
+      if (!knowsWord && turn.word && normalizeAnswer(text).includes(normalizeAnswer(turn.word))) {
+        // "고양이?", "고양이ㅋㅋ"처럼 정답이 들어 있지만 정답은 아닌 말은 보낸 사람에게만 돌려준다.
+        // 따로 알리지 않는다. 알리면 단어 여러 개를 넣어 보내 보며 어느 말에 정답이 있는지 알아낼 수 있다.
+        player.conn?.send({ type: 'chat', entry });
+        return;
+      }
       if (knowsWord) {
         // 정답을 아는 사람의 채팅은 정답을 아는 사람끼리만 본다. 정답이나 결정적인 힌트가 새지 않게 하기 위해서다.
         const solvedEntry = { ...entry, solvedOnly: true };
