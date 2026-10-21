@@ -16,5 +16,7 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY shared ./shared
+# 서버는 파일을 쓰지 않고(읽기만 한다) 1024보다 큰 포트를 쓰므로 root 권한이 필요 없다.
+USER node
 EXPOSE 3100
 CMD ["node", "server/main.ts"]
