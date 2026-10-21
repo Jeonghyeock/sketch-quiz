@@ -142,6 +142,8 @@ export class Room {
   }
 
   // 소켓이 닫혔을 때. 잠깐 끊긴 것일 수 있으니 바로 내보내지 않고 자리를 잡아 둔다.
+  // "모두 맞힘"도 여기서는 확인하지 않는다. 못 맞힌 마지막 사람이 새로고침했을 뿐인데 턴이 끝나 버리기 때문이다.
+  // 유예 시간이 지나 내보낼 때(remove) 확인한다.
   disconnect(conn: Connection): void {
     const player = this.byConn.get(conn);
     if (!player) return;
@@ -152,7 +154,6 @@ export class Room {
       this.reconnectGraceMs,
     );
     this.broadcastState();
-    this.checkAllSolved();
   }
 
   handle(conn: Connection, message: ClientMessage): void {
