@@ -52,6 +52,11 @@ describe('server', () => {
     expect(await closeCodeAfter(Array.from({ length: 300 }, () => ({ type: 'ping' })))).toBe(4008);
   });
 
+  it('64KB를 넘는 메시지는 연결만 끊고 서버는 계속 동작한다', async () => {
+    expect(await closeCodeAfter(['x'.repeat(70 * 1024)])).toBe(1009);
+    expect(await rawGet('/healthz')).toBe(200);
+  });
+
   it('정적 파일 경로로 상위 폴더에 접근할 수 없다', async () => {
     expect(await rawGet('/..%2f..%2fpackage.json')).toBe(403);
   });
