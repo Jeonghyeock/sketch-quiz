@@ -126,6 +126,8 @@ describe('게임 진행', () => {
     startDrawing(room, alice);
     room.handle(alice, { type: 'draw', ops: [stroke] });
     vi.advanceTimersByTime(46_000); // 힌트 두 단계가 모두 공개된 뒤
+    const nearMisses = ['바나나우유?', '바나나우유!!', '바나나 우유ㅋㅋ'];
+    for (const text of nearMisses) room.handle(bob, { type: 'chat', text }); // 정답이 들어 있지만 정답은 아닌 말
     room.handle(bob, { type: 'chat', text: '바나나우유' }); // bob이 맞힌다
     room.handle(bob, { type: 'chat', text: '정답은 바나나우유' }); // 맞힌 사람끼리의 대화
     room.handle(alice, { type: 'chat', text: '바나나우유 맞아요' }); // 그리는 사람의 대화
@@ -134,6 +136,9 @@ describe('게임 진행', () => {
     for (const word of ['바나나우유', '자전거길', '사과나무']) expect(seenByCarol).not.toContain(word);
     for (const name of ['alice', 'bob']) expect(seenByCarol).not.toContain(tokenOf(name));
     expect(JSON.stringify(alice.received)).not.toContain(tokenOf('alice'));
+    // 정답이 들어 있는 말은 버리지 않고 보낸 사람에게만 돌려준다(보낸 사람 화면에는 평범한 오답으로 보인다).
+    const sentBack = bob.chats.flatMap((c) => (c.kind === 'chat' && !c.solvedOnly ? [c.text] : []));
+    expect(sentBack).toEqual(nearMisses);
 
     vi.advanceTimersByTime(14_000); // 시간 종료 → 이제 모두에게 공개
     expect(carol.state.phase).toMatchObject({ kind: 'turnEnd', word: '바나나우유' });
