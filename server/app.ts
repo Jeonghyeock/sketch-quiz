@@ -131,6 +131,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       room?.handle(conn, message);
     });
 
+    // 크기 초과(64KB)·프로토콜 위반이면 ws가 알맞은 코드(1009 등)로 소켓을 직접 닫고 'error'를 낸다.
+    // 리스너가 없으면 프로세스가 죽어 모든 방이 사라지므로 받아만 둔다. 정리는 이어지는 'close'에서 한다.
+    // 로그는 남기지 않는다. 일부러 큰 메시지를 계속 보내면 로그만 쌓이기 때문이다.
+    ws.on('error', () => {});
+
     ws.on('close', () => {
       clearTimeout(helloTimeout);
       // 서버를 닫는 중이면 이미 정리한 방에 재접속 유예 타이머를 다시 걸지 않는다.
