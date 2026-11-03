@@ -3,8 +3,10 @@ import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { startServer, type RunningServer } from './app.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { WebSocket as WsClient } from 'ws';
+import type { ServerMessage } from '../shared/protocol.ts';
+import { startServer, type RunningServer, type ServerOptions } from './app.ts';
 
 let server: RunningServer;
 let staticDir: string;
@@ -87,4 +89,106 @@ describe('server', () => {
     expect(await rawGet('/missing.js')).toBe(404);
     expect(await rawGet('/healthz')).toBe(200);
   });
+});
+
+describe('느리거나 응답하지 않는 연결', () => {
+  // 소켓을 읽지 않거나 pong 을 보내지 않는 클라이언트(ws 라이브러리로 흉내 낸다). 종료 코드를 처음부터 기록하고,
+  // hello 를 보낸 뒤 welcome 을 기다린다.
+  async function join(port: number, name: string, options: { autoPong?: boolean } = {}) {
+    const ws = new WsClient(`ws://localhost:${port}/ws`, options);
+    const messages: ServerMessage[] = [];
+    let closeCode: number | null = null;
+    ws.on('close', (code) => (closeCode = code));
+    ws.on('message', (data) => messages.push(JSON.parse(String(data))));
+    await new Promise<void>((resolve) => ws.once('open', () => resolve()));
+    ws.send(JSON.stringify({ type: 'hello', roomId: 'slowRoom01', token: `token${name}`.padEnd(20, '0'), name }));
+    await vi.waitFor(() => expect(messages.some((m) => m.type === 'welcome')).toBe(true));
+    const welcome = messages.find((m) => m.type === 'welcome');
+    const playerId = welcome?.type === 'welcome' ? welcome.playerId : '';
+    return { ws, messages, playerId, closeCode: () => closeCode };
+  }
+
+  async function withServer(options: Partial<ServerOptions>, run: (port: number) => Promise<void>) {
+    const s = await startServer({ port: 0, ...options });
+    try {
+      await run(s.port);
+    } finally {
+      await s.close();
+    }
+  }
+
+  it('pong 없이 앱 ping 만 보내는 연결은 하트비트가 끊는다', async () => {
+    // 고치기 전에는 아무 메시지나 받아도 살아 있다고 봐서, 소켓을 읽지 않고도 앱 ping 만으로 하트비트를 피했다
+    await withServer({ heartbeatMs: 50 }, async (port) => {
+      const client = await join(port, 'pinger', { autoPong: false });
+      const pinger = setInterval(() => {
+        if (client.ws.readyState === WsClient.OPEN) client.ws.send(JSON.stringify({ type: 'ping' }));
+      }, 30); // 메시지 속도 제한(초당 50개) 아래로
+      await vi.waitFor(() => expect(client.closeCode()).toBe(1006), { timeout: 2000 }).finally(() => clearInterval(pinger));
+    });
+  });
+
+  it('요청하지 않은 pong 만 보내는 연결도 하트비트가 끊는다', async () => {
+    // 서버가 보낸 ping 의 payload 를 돌려준 pong 만 살아 있다는 표시로 본다
+    await withServer({ heartbeatMs: 50 }, async (port) => {
+      const client = await join(port, 'ponger', { autoPong: false });
+      const ponger = setInterval(() => {
+        if (client.ws.readyState === WsClient.OPEN) client.ws.pong();
+      }, 20);
+      await vi.waitFor(() => expect(client.closeCode()).toBe(1006), { timeout: 2000 }).finally(() => clearInterval(ponger));
+    });
+  });
+
+  it('pong 으로 답하는 연결은 끊지 않는다', async () => {
+    await withServer({ heartbeatMs: 50 }, async (port) => {
+      const client = await join(port, 'healthy');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(client.closeCode()).toBeNull();
+      client.ws.close();
+    });
+  });
+
+  it('클라이언트가 보낸 ping 프레임에 자동으로 pong 을 쌓지 않는다', async () => {
+    // 자동 pong 은 송신 버퍼 상한을 거치지 않아, 읽지 않는 연결이 ping 만 보내도 버퍼가 끝없이 커질 수 있었다
+    const client = await join(server.port, 'pingframe');
+    let pongs = 0;
+    client.ws.on('pong', () => (pongs += 1));
+    for (let i = 0; i < 5; i++) client.ws.ping();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(pongs).toBe(0);
+    client.ws.close();
+  });
+
+  it('소켓을 읽지 않는 연결은 송신 버퍼가 상한을 넘으면 끊고, 자리는 재접속 유예 동안 남긴다', async () => {
+    // 고치기 전에는 send 가 bufferedAmount 를 보지 않아, 읽지 않는 연결마다 서버 메모리가 끝없이 쌓였다.
+    // OS 소켓 버퍼가 먼저 흡수하는 양이 환경마다 달라, 상한을 256KB 로 낮추고 그보다 훨씬 많이(최대 약 19MB) 보낸다.
+    await withServer({ maxSendBufferBytes: 256 * 1024 }, async (port) => {
+      const drawer = await join(port, 'drawer'); // 첫 사람이 방장이고 첫 턴을 그린다
+      const reader = await join(port, 'reader');
+      reader.ws.pause(); // 이제부터 읽지 않는다
+      drawer.ws.send(JSON.stringify({ type: 'start', settings: { rounds: 1, drawSeconds: 180 } }));
+      drawer.ws.send(JSON.stringify({ type: 'choose', index: 0 }));
+
+      const readerSeat = () => {
+        const last = drawer.messages.findLast((m) => m.type === 'state');
+        return last?.type === 'state' ? last.state.players.find((p) => p.id === reader.playerId) : undefined;
+      };
+      // 턴의 획 예산(2000획·20만 좌표)을 undo 로 되돌려 가며, 메시지마다 획 3개(약 48KB)를 보낸다.
+      // 그리는 사람에게는 자기 획이 돌아오지 않으므로 그리는 사람 쪽 버퍼는 쌓이지 않는다.
+      const points = new Array(4000).fill(999);
+      let strokeId = 0;
+      for (let i = 0; i < 400 && readerSeat()?.connected !== false; i++) {
+        const ops = [1, 2, 3].flatMap(() => [
+          { kind: 'undo' },
+          { kind: 'begin', id: ++strokeId, color: '#000000', width: 4, points },
+        ]);
+        drawer.ws.send(JSON.stringify({ type: 'draw', ops }));
+        await new Promise((resolve) => setTimeout(resolve, 25)); // 메시지 속도 제한(초당 50개) 아래로
+      }
+      await vi.waitFor(() => expect(readerSeat()?.connected).toBe(false), { timeout: 10_000 });
+      expect(drawer.closeCode()).toBeNull();
+      drawer.ws.close();
+      reader.ws.terminate();
+    });
+  }, 30_000);
 });
