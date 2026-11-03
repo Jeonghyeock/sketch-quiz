@@ -1,5 +1,6 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -41,6 +42,20 @@ function rawGet(requestPath: string): Promise<number> {
   });
 }
 
+// 브라우저나 http 모듈로는 보낼 수 없는 요청 줄을 그대로 보내고, 서버가 연결을 닫을 때까지 기다린다.
+function rawUpgrade(target: string): Promise<void> {
+  return new Promise((resolve) => {
+    const socket = net.connect(server.port, 'localhost', () => {
+      socket.write(
+        `GET ${target} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n',
+      );
+    });
+    socket.on('error', () => {}); // 서버가 끊으면 ECONNRESET이 올 수 있다.
+    socket.on('close', () => resolve());
+  });
+}
+
 describe('server', () => {
   it('스키마에 맞지 않는 메시지를 보내면 연결을 끊는다', async () => {
     expect(await closeCodeAfter(['not json'])).toBe(1007);
@@ -54,6 +69,12 @@ describe('server', () => {
 
   it('64KB를 넘는 메시지는 연결만 끊고 서버는 계속 동작한다', async () => {
     expect(await closeCodeAfter(['x'.repeat(70 * 1024)])).toBe(1009);
+    expect(await rawGet('/healthz')).toBe(200);
+  });
+
+  it('해석할 수 없는 주소로 업그레이드를 요청하면 그 연결만 끊고 서버는 계속 동작한다', async () => {
+    await rawUpgrade('//');
+    await rawUpgrade('http://[/ws');
     expect(await rawGet('/healthz')).toBe(200);
   });
 
