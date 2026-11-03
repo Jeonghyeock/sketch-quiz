@@ -286,10 +286,11 @@ export class Room {
       solvedOnly: false,
     };
     const phase = this.phase;
-    if (phase.kind === 'drawing') {
+    // 단어 고르기 단계에서도 그리는 사람은 후보 단어를 안다. 그때 한 말도 정답을 아는 사람끼리만 본다.
+    if (phase.kind === 'choosing' || phase.kind === 'drawing') {
       const { turn } = phase;
       const knowsWord = player.id === turn.drawerId || turn.solved.has(player.id);
-      if (!knowsWord && turn.word && normalizeAnswer(text) === normalizeAnswer(turn.word)) {
+      if (phase.kind === 'drawing' && !knowsWord && turn.word && normalizeAnswer(text) === normalizeAnswer(turn.word)) {
         // 정답은 채팅으로 내보내지 않는다. 내보내면 그 순간 모두에게 정답이 보인다.
         this.solve(player, phase);
         return;

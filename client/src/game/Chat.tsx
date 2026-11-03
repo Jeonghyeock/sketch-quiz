@@ -18,9 +18,15 @@ export function Chat({ client, entries, game, playerId, online }: Props) {
   }, [entries]);
 
   const { phase } = game;
-  const knowsWord = phase.kind === 'drawing' && (phase.drawerId === playerId || phase.word !== null);
-  const placeholder =
-    phase.kind !== 'drawing' ? '메시지를 입력하세요' : knowsWord ? '정답을 아는 사람끼리만 보여요' : '정답을 입력해 보세요';
+  // 서버와 같은 기준이다. 단어를 고르는 동안에는 그리는 사람만 후보를 안다.
+  const knowsWord =
+    (phase.kind === 'choosing' && phase.drawerId === playerId) ||
+    (phase.kind === 'drawing' && (phase.drawerId === playerId || phase.word !== null));
+  const placeholder = knowsWord
+    ? '정답을 아는 사람끼리만 보여요'
+    : phase.kind === 'drawing'
+      ? '정답을 입력해 보세요'
+      : '메시지를 입력하세요';
 
   function submit(event: FormEvent) {
     event.preventDefault();

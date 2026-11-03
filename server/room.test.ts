@@ -123,7 +123,9 @@ describe('게임 진행', () => {
   it('정답을 맞히기 전에는 정답·후보 단어·남의 토큰이 어떤 메시지에도 담기지 않는다', () => {
     const { room, conns } = setup();
     const [alice, bob, carol] = conns as [FakeConnection, FakeConnection, FakeConnection];
-    startDrawing(room, alice);
+    room.handle(alice, { type: 'start', settings: SETTINGS });
+    room.handle(alice, { type: 'chat', text: '바나나우유 vs 자전거길 뭐 그리지' }); // 단어를 고르는 동안 그리는 사람의 말
+    room.handle(alice, { type: 'choose', index: 0 });
     room.handle(alice, { type: 'draw', ops: [stroke] });
     vi.advanceTimersByTime(46_000); // 힌트 두 단계가 모두 공개된 뒤
     const nearMisses = ['바나나우유?', '바나나우유!!', '바나나 우유ㅋㅋ'];
@@ -139,6 +141,8 @@ describe('게임 진행', () => {
     // 정답이 들어 있는 말은 버리지 않고 보낸 사람에게만 돌려준다(보낸 사람 화면에는 평범한 오답으로 보인다).
     const sentBack = bob.chats.flatMap((c) => (c.kind === 'chat' && !c.solvedOnly ? [c.text] : []));
     expect(sentBack).toEqual(nearMisses);
+    // 단어를 고르는 동안 한 말은 그리는 사람 본인만 정답을 아는 사람의 채팅으로 본다.
+    expect(alice.chats.find((c) => c.kind === 'chat' && c.text.includes('뭐 그리지'))).toMatchObject({ solvedOnly: true });
 
     vi.advanceTimersByTime(14_000); // 시간 종료 → 이제 모두에게 공개
     expect(carol.state.phase).toMatchObject({ kind: 'turnEnd', word: '바나나우유' });
