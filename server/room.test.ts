@@ -148,6 +148,27 @@ describe('게임 진행', () => {
     expect(carol.state.phase).toMatchObject({ kind: 'turnEnd', word: '바나나우유' });
   });
 
+  it('다른 사람에게 보낼지가 정답에 따라 갈리지 않아, 탭을 하나 더 열어도 후보를 묶어 정답을 좁힐 수 없다', () => {
+    // 고치기 전에는 정답이 들어 있는 말만 보낸 사람에게 돌려줬다. 후보 여러 개를 묶어 보내고 두 번째 탭에 오는지를 보면
+    // 공개된 제시어 172개 중 정답을 메시지 9개 안에 찾았다(이분 탐색).
+    const words = ['바나나우유', '시계', '자전거길', '모래시계', '사과나무', '눈사람집'];
+    const probes = ['바나나우유, 자전거길', '사과나무 아니면 눈사람집', '모래시계', '그림 잘 그리시네요', '눈사람집?'];
+    for (const answer of [0, 1, 2]) {
+      const { room, conns } = setup(['alice', 'bob', 'carol'], { words });
+      const [alice, bob, carol] = conns as [FakeConnection, FakeConnection, FakeConnection];
+      room.handle(alice, { type: 'start', settings: SETTINGS });
+      room.handle(alice, { type: 'choose', index: answer }); // 후보는 바나나우유·시계·자전거길
+      for (const text of probes) {
+        room.handle(bob, { type: 'chat', text });
+        vi.advanceTimersByTime(1_000); // 채팅 속도 제한(초당 1개) 안에서
+      }
+      const texts = (conn: FakeConnection) => conn.chats.flatMap((c) => (c.kind === 'chat' ? [c.text] : []));
+      // 목록 단어가 둘 이상 든 말("모래시계"는 시계도 품는다)은 정답과 상관없이 보낸 사람에게만 간다
+      expect(texts(carol)).toEqual(['그림 잘 그리시네요', '눈사람집?']);
+      expect(texts(bob)).toEqual(probes);
+    }
+  });
+
   it('정답은 채팅으로 내보내지 않고, 빨리 맞힐수록 점수를 많이 준다', () => {
     const { room, conns } = setup();
     const [alice, bob, carol] = conns as [FakeConnection, FakeConnection, FakeConnection];
