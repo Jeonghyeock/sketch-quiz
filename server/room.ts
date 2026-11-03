@@ -79,6 +79,7 @@ export class Room {
   private readonly turnEndMs: number;
   private readonly reconnectGraceMs: number;
   private readonly words: readonly string[];
+  private readonly normalizedWords: readonly string[];
   private readonly random: () => number;
 
   private players = new Map<string, Player>(); // Map은 넣은 순서를 지킨다 → 들어온 순서 = 그리는 순서
@@ -101,6 +102,7 @@ export class Room {
     this.turnEndMs = options.turnEndMs ?? 5_000;
     this.reconnectGraceMs = options.reconnectGraceMs ?? 20_000;
     this.words = options.words ?? WORDS;
+    this.normalizedWords = [...new Set(this.words.map(normalizeAnswer))];
     this.random = options.random ?? Math.random;
   }
 
@@ -295,9 +297,15 @@ export class Room {
         this.solve(player, phase);
         return;
       }
-      if (!knowsWord && turn.word && normalizeAnswer(text).includes(normalizeAnswer(turn.word))) {
+      if (
+        !knowsWord &&
+        turn.word &&
+        (normalizeAnswer(text).includes(normalizeAnswer(turn.word)) || this.containsSeveralWords(text))
+      ) {
         // "고양이?", "고양이ㅋㅋ"처럼 정답이 들어 있지만 정답은 아닌 말은 보낸 사람에게만 돌려준다.
         // 따로 알리지 않는다. 알리면 단어 여러 개를 넣어 보내 보며 어느 말에 정답이 있는지 알아낼 수 있다.
+        // 다른 사람 화면에 오는지도 같은 신호다(탭을 하나 더 열면 보인다). 그래서 목록 단어가 둘 이상 들어 있는 말은
+        // 정답과 상관없이 보낸 사람에게만 돌려준다. 하나만 든 말로 알 수 있는 것은 그 단어를 입력해 보는 것과 같다.
         player.conn?.send({ type: 'chat', entry });
         return;
       }
@@ -311,6 +319,16 @@ export class Room {
       }
     }
     this.broadcast({ type: 'chat', entry });
+  }
+
+  // 제시어 목록의 단어가 둘 이상 들어 있는지. 정답과 상관없이 정해지므로, 이걸로 갈린 채팅을 보고 정답을 좁힐 수 없다.
+  private containsSeveralWords(text: string): boolean {
+    const normalized = normalizeAnswer(text);
+    let found = 0;
+    for (const word of this.normalizedWords) {
+      if (normalized.includes(word) && ++found >= 2) return true;
+    }
+    return false;
   }
 
   private solve(player: Player, phase: Extract<Phase, { kind: 'drawing' }>): void {
