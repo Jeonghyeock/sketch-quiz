@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatEntry, DrawOp, GameState, HelloMessage, ServerMessage, Settings } from '../shared/protocol.ts';
 import { Room, type Connection, type RoomOptions } from './room.ts';
+import { WORDS as WORDS_IN_GAME } from './words.ts';
 
 // 타이머는 vitest 가짜 시계로 움직인다. Room은 전역 setTimeout/Date.now만 쓰므로 그대로 따라온다.
 
@@ -167,6 +168,30 @@ describe('게임 진행', () => {
       expect(texts(carol)).toEqual(['그림 잘 그리시네요', '눈사람집?']);
       expect(texts(bob)).toEqual(probes);
     }
+  });
+
+  it('실제 제시어 목록에서 단어 하나만 넣은 평범한 추측은 다른 사람에게 그대로 간다', () => {
+    // 고치기 전에는 목록에 '지도'·'라면'·'모자'·'오리'·'거미'·'기타'가 있어서, 어미나 흔한 말이 이 단어로 세어져
+    // 아래 말이 모두 단어 두 개짜리가 되었다. 정답과 상관없이 보낸 사람에게만 돌아갔고 보낸 사람은 그걸 알 수 없었다.
+    const answer = '헬리콥터'; // 아래 말 어디에도 없는 정답
+    const { room, conns } = setup(['alice', 'bob', 'carol'], { words: [answer, ...WORDS_IN_GAME.filter((w) => w !== answer)] });
+    const [alice, bob, carol] = conns as [FakeConnection, FakeConnection, FakeConnection];
+    startDrawing(room, alice);
+    const guesses = [
+      '고양이일지도?',
+      '강아지라면 귀가 더 길텐데',
+      '시간이 모자라 ㅠㅠ 토끼?',
+      '오리지널 기린?',
+      '이거 미끄럼틀?',
+      '비행기 타는 거?',
+    ];
+    for (const text of guesses) {
+      room.handle(bob, { type: 'chat', text });
+      vi.advanceTimersByTime(1_000); // 채팅 속도 제한(초당 1개) 안에서
+    }
+    const texts = (conn: FakeConnection) => conn.chats.flatMap((c) => (c.kind === 'chat' ? [c.text] : []));
+    expect(texts(carol)).toEqual(guesses);
+    expect(texts(bob)).toEqual(guesses);
   });
 
   it('정답은 채팅으로 내보내지 않고, 빨리 맞힐수록 점수를 많이 준다', () => {
